@@ -199,7 +199,7 @@ float TargetContainer::SetTarget( int year )
    // apply domain, query modifiers if needed
    if ( this->m_targetDomain == TD_PCTAREA )
       {
-      // targets values should be considered decimal percentages. These area applied to the 
+      // targets values should be considered decimal fractions. These area applied to the 
       // area that satisfies the target query, or the entire study area if a query is not defined
 
       SpatialAllocator *pModel = this->m_pSAModel;
@@ -404,6 +404,7 @@ void TargetContainer::Init( int id, int colAllocSet, int colSequence )
    //
    //   Report::Log( data );
    //   }
+
    }
 
 
@@ -499,7 +500,7 @@ Allocation::Allocation( AllocationSet *pSet, LPCTSTR name, int id ) //, TARGET_S
    , m_scoreCount( 0 )     // number of scores greater than 0 at any given time
    , m_usedCount( 0 )
    , m_scoreArea( 0 )      // area of scores greater than 0 at any given time
-   ,  m_scoreBasis( 0 )    // 
+   , m_scoreBasis( 0 )    // 
    , m_expandArea( 0 )    // 
    ,  m_expandBasis( 0 )    // 
    , m_constraintAreaSatisfied( 0 )
@@ -879,6 +880,7 @@ SpatialAllocator::SpatialAllocator()
 , m_outputData(U_YEARS)
 , m_collectExpandStats(false)
 , m_pExpandStats(NULL)
+, m_pBuildFromFile(NULL)
    { }
 
 
@@ -917,6 +919,9 @@ SpatialAllocator::~SpatialAllocator( void )
    // and local data
    if ( m_pRandUnif )
       delete m_pRandUnif;
+   if ( m_pBuildFromFile)
+      delete m_pBuildFromFile;
+   
    }
 
 
@@ -927,6 +932,9 @@ bool SpatialAllocator::Init( EnvContext *pEnvContext, LPCTSTR initStr )
    // allocate static expression and query engines if needed
    m_pMapExprEngine = pEnvContext->pExprEngine;
    m_pQueryEngine = pEnvContext->pQueryEngine;
+
+   if (m_colArea < 0)
+      m_colArea = m_pMapLayer->GetFieldCol(_T("AREA"));
 
    // initialize internal array for sorting IDUs
    int iduCount = m_pMapLayer->GetPolygonCount();
@@ -1038,9 +1046,9 @@ void SpatialAllocator::InitAllocSetData( void )
 
       int cols = 0;
       if ( isTargetDefined )
-         cols = 1 + 2 + 9*pAllocSet->GetAllocationCount();  // time + 2 per AllocationSet + 9 per Allocation
+         cols = 1 + 3 + 10*pAllocSet->GetAllocationCount();  // time + 2 per AllocationSet + 9 per Allocation
       else
-         cols = 1 + 0 + 10*pAllocSet->GetAllocationCount();  // time + 0 per AllocationSet + 10 per Allocation
+         cols = 1 + 0 + 11*pAllocSet->GetAllocationCount();  // time + 0 per AllocationSet + 10 per Allocation
 
       // first one percent areas
       int col = 0;
@@ -1054,6 +1062,7 @@ void SpatialAllocator::InitAllocSetData( void )
          {
          pAllocSet->m_pOutputData->SetLabel( col++, "Total Target");
          pAllocSet->m_pOutputData->SetLabel( col++, "Total Realized");         
+         pAllocSet->m_pOutputData->SetLabel(col++, "Total Area Realized");
          }
 
       for ( int j=0; j < pAllocSet->GetAllocationCount(); j++ )
@@ -1070,6 +1079,9 @@ void SpatialAllocator::InitAllocSetData( void )
                   
          label = pAlloc->m_name + "-Realized";
          pAllocSet->m_pOutputData->SetLabel( col++, label );
+
+         label = pAlloc->m_name + "-Realized Area";
+         pAllocSet->m_pOutputData->SetLabel(col++, label);
 
          label = pAlloc->m_name + "-pctRealized";
          pAllocSet->m_pOutputData->SetLabel( col++, label );
@@ -1111,6 +1123,7 @@ bool SpatialAllocator::InitRun( EnvContext *pEnvContext, bool useInitialSeed )
       {
       AllocationSet *pAllocSet = m_allocationSetArray[ i ];
       pAllocSet->m_allocationSoFar = 0;
+      pAllocSet->m_areaSoFar = 0;
       
       // init each allocation
       for ( int j=0; j < pAllocSet->GetAllocationCount(); j++ )
@@ -1119,6 +1132,7 @@ bool SpatialAllocator::InitRun( EnvContext *pEnvContext, bool useInitialSeed )
          pAlloc->m_cumBasisActual = 0;
          pAlloc->m_cumBasisTarget = 0;
          pAlloc->m_allocationSoFar = 0;
+         pAlloc->m_areaSoFar = 0;
          pAlloc->m_constraintAreaSatisfied = 0;
          }
 
@@ -1136,6 +1150,8 @@ bool SpatialAllocator::InitRun( EnvContext *pEnvContext, bool useInitialSeed )
 
 bool SpatialAllocator::Run( EnvContext *pContext )
    {
+   if (m_pBuildFromFile)
+      UpdateAllocationsFromFile();
    // set the desired value for the targets
    SetAllocationTargets( pContext->currentYear );
 
@@ -1198,6 +1214,7 @@ bool SpatialAllocator::PopulateSequences( void )
                Allocation *pAlloc = pAllocSet->m_allocationArray[ j ];
    
                pAlloc->m_allocationSoFar = 0;
+               pAlloc->m_areaSoFar = 0;
                pAlloc->m_currentTarget = pAlloc->m_initPctArea * m_totalArea;   // why is this here?
                }
             }
@@ -1289,9 +1306,12 @@ bool SpatialAllocator::PopulateSequences( void )
                      {
                      m_pMapLayer->SetData( idu, pAllocSet->m_colSequence, pAlloc->m_id );
 
-                     float area = 0;
+                     float area = 0, basis = 0;
                      m_pMapLayer->GetData( idu, m_colArea, area );
-                     pAlloc->m_allocationSoFar += area;
+                     m_pMapLayer->GetData(idu, pAllocSet->m_colTargetBasis, basis);
+
+                     pAlloc->m_allocationSoFar += basis;
+                     pAlloc->m_areaSoFar += area;
                      //break;  // go to next AllocationSet
                      }
                   }  // end of:  if pAlloc->IsSequence() && pAlloc->m_allocationSoFar < pAlloc->m_currentTarget )
@@ -1319,6 +1339,7 @@ bool SpatialAllocator::PopulateSequences( void )
                   (LPCTSTR) pAlloc->m_name, pAlloc->m_allocationSoFar * 100 / m_totalArea, pAlloc->m_initPctArea*100 );
    
                pAlloc->m_allocationSoFar = 0;
+               pAlloc->m_areaSoFar = 0;
                pAlloc->m_currentTarget = 0;
    
                Report::Log( msg );
@@ -1368,6 +1389,7 @@ void SpatialAllocator::ScoreIduAllocations( EnvContext *pContext, bool useAddDel
       {
       AllocationSet *pAllocSet = m_allocationSetArray[ i ];
       pAllocSet->m_allocationSoFar = 0;
+      pAllocSet->m_areaSoFar = 0;
       pAllocSet->OrderIDUs( m_iduArray, m_shuffleIDUs, m_pRandUnif );
       
       if ( pAllocSet->m_inUse )
@@ -1375,7 +1397,9 @@ void SpatialAllocator::ScoreIduAllocations( EnvContext *pContext, bool useAddDel
          for ( int j=0; j < (int) pAllocSet->m_allocationArray.GetSize(); j++ )
             {
             Allocation *pAlloc = pAllocSet->m_allocationArray[ j ];
+
             pAlloc->m_allocationSoFar = 0;
+            pAlloc->m_areaSoFar = 0;
             pAlloc->m_constraintAreaSatisfied = 0;
             pAlloc->m_minScore   = (float) LONG_MAX;     // min and max score for this allocation
             pAlloc->m_maxScore   = (float) -LONG_MAX;
@@ -1715,13 +1739,18 @@ void SpatialAllocator::AllocBestWins( EnvContext *pContext, bool useAddDelta )
                else
                   m_pMapLayer->SetData( idu, pAllocSet->m_col, pAlloc->m_id );
                
-               float basis = 0;
-               m_pMapLayer->GetData( idu, pAlloc->m_colTargetBasis, basis );
+               float area = 0, basis = 0;
+               m_pMapLayer->GetData( idu, this->m_colArea, area);
+               m_pMapLayer->GetData(idu, pAlloc->m_colTargetBasis, basis);
 
                pAlloc->m_allocationSoFar += basis;
+               pAlloc->m_areaSoFar += area;
 
-               if ( pAlloc->m_targetSource == TS_USEALLOCATIONSET )
+               if (pAlloc->m_targetSource == TS_USEALLOCATIONSET)
+                  {
                   pAllocSet->m_allocationSoFar += basis;
+                  pAllocSet->m_areaSoFar += area;
+                  }
                }
             }  // end of: if ( pAllocSet->m_inUse )
          }  // end of: for ( each allocationSet )
@@ -1910,7 +1939,7 @@ void SpatialAllocator::AllocScorePriority( EnvContext *pContext, bool useAddDelt
             int currAttrCode = -1;
             m_pMapLayer->GetData( idu, pAllocSet->m_col, currAttrCode );
             
-            int newAttrCode = pBest->m_id;    // this is the value to write to the database col
+            int newAttrCode = pBest->m_id;    // this is the value to write to the idu col
             int newSequenceID = -1;
             int currSequenceID = -1;
    
@@ -1946,31 +1975,40 @@ void SpatialAllocator::AllocScorePriority( EnvContext *pContext, bool useAddDelt
                this->UpdateIDU( pContext, idu, pAllocSet->m_colSequence, newSequenceID, useAddDelta ?ADD_DELTA : SET_DATA );
 
             // update internals with allocation basis value
-            float basis = 0;
-            m_pMapLayer->GetData( idu, pBest->m_colTargetBasis, basis );
+
+            float area=0, basis=0;
+            m_pMapLayer->GetData( idu, this->m_colArea, area );
+            m_pMapLayer->GetData(idu, pBest->m_colTargetBasis, basis);
 
             pBest->m_allocationSoFar += basis;   // accumulate the basis target of this allocation
+            pBest->m_areaSoFar += area;   // accumulate the basis target of this allocation
             pBest->m_usedCount++;
 
-            if ( pBest->m_targetSource == TS_USEALLOCATIONSET )
-               pAllocSet->m_allocationSoFar += basis;
-                        
-            // Expand if needed
-            if ( pBest->m_useExpand )
+            if (pBest->m_targetSource == TS_USEALLOCATIONSET)
                {
-               float expandArea = 0;
-               float expandAreaBasis = Expand( idu, pBest, useAddDelta, currAttrCode, newAttrCode, currSequenceID, newSequenceID, pContext, isIduOpen, expandArea );
-
-               pBest->m_allocationSoFar += expandAreaBasis;   // accumulate the basis target of this allocation
-               pBest-> m_expandBasis    += expandAreaBasis;   
-               pBest->m_expandArea      += expandArea;
-
-               if ( pBest->m_targetSource == TS_USEALLOCATIONSET )
-                  pAllocSet->m_allocationSoFar += expandAreaBasis;
+               pAllocSet->m_allocationSoFar += basis;
+               pAllocSet->m_areaSoFar += area;
                }
 
-            pBest->m_currentIduScoreIndex++;    // pop of the front of the list for the best allocation
-   
+            // Expand if needed
+            if (pBest->m_useExpand)
+               {
+               float expandArea = 0;
+               float expandAreaBasis = Expand(idu, pBest, useAddDelta, currAttrCode, newAttrCode, currSequenceID, newSequenceID, pContext, isIduOpen, expandArea);
+
+               pBest->m_allocationSoFar += expandAreaBasis;   // accumulate the basis target of this allocation
+               pBest->m_areaSoFar += expandArea;        // accumulate the area of this allocation
+               pBest->m_expandBasis += expandAreaBasis;
+               pBest->m_expandArea += expandArea;
+
+               if (pBest->m_targetSource == TS_USEALLOCATIONSET)
+                  {
+                  pAllocSet->m_allocationSoFar += expandAreaBasis;
+                  pAllocSet->m_areaSoFar += expandArea;
+                  }
+               }
+
+            pBest->m_currentIduScoreIndex++;    // pop of the front of the list for the best allocation   
 
             // generate notification for any scoring listeners
             float currentTarget = pBest->GetCurrentTarget();
@@ -1978,6 +2016,7 @@ void SpatialAllocator::AllocScorePriority( EnvContext *pContext, bool useAddDelt
             float pctAllocated = -1;
             if (currentTarget > 0 )
                pctAllocated = 100*pBest->m_allocationSoFar/currentTarget;
+
             Notify( 1, idu, currentBestScore, pBest, remaining, pctAllocated );
 
             // are we done yet?
@@ -2123,12 +2162,14 @@ bool SpatialAllocator::LoadXml( LPCTSTR filename, PtrArray< AllocationSet > *pAl
 
    LPTSTR areaCol = NULL; //, scoreCol=NULL;
    LPTSTR method  = NULL;
+   LPTSTR updatefromfile = NULL;
    int    shuffleIDUs = 1;
    XML_ATTR rattrs[] = { // attr          type           address       isReq checkCol
                       { "area_col",     TYPE_STRING,   &areaCol,       false, CC_MUST_EXIST | TYPE_FLOAT },
                       //{ "score_col",    TYPE_STRING,   &scoreCol,      false, CC_AUTOADD    | TYPE_FLOAT },
                       { "method",       TYPE_STRING,   &method,        false, 0 },
                       { "shuffle_idus", TYPE_INT,      &shuffleIDUs,   false, 0 },
+                      { "update_from_file", TYPE_STRING,   &updatefromfile,        false, 0 },
                       { NULL,           TYPE_NULL,     NULL,           false, 0 } };
 
    if ( TiXmlGetAttributes( pXmlRoot, rattrs, path, m_pMapLayer ) == false )
@@ -2136,6 +2177,12 @@ bool SpatialAllocator::LoadXml( LPCTSTR filename, PtrArray< AllocationSet > *pAl
    
    if ( areaCol == NULL )
       areaCol = "AREA";
+   if (updatefromfile != NULL)
+     {
+      m_pBuildFromFile = new FDataObj();
+      m_pBuildFromFile->ReadAscii(updatefromfile);
+      m_update_from_file_name = updatefromfile;
+      }
 
    this->m_colArea = m_pMapLayer->GetFieldCol( areaCol );
    if ( m_colArea < 0 )
@@ -2416,6 +2463,65 @@ bool SpatialAllocator::LoadXml( LPCTSTR filename, PtrArray< AllocationSet > *pAl
    return true;
    }
 
+   // The method can be called each timestep (it will be if m_pBuildFromFile is not NULL.  A tag has been added to the LoadXml code:
+
+  // <spatial_allocator area_col = "AREA" method = "score priority" shuffle_idus = "1" update_from_file = "D:\\Envision\\StudyAreas\\CALFEWS\\calvin\\AgModel_Envision.csv">
+  //    <allocation_set name = "AgCrops" col = "SWAT_ID" use = "1" >
+  //    <allocation name = "Almonds and Pistachios" id = "106" target_source = "timeseries" target_values = "(1950,50),(2100,50)"><constraint name = "Ag" query = "LULC_A=7 {Agriculture} " / ><preference name = "Current" query = "SWAT_ID = 106 {Almonds}" weight = "0.75" / >< / allocation>
+  //    <allocation name = "Almonds and Pistachios" id = "106" target_source = "timeseries" target_values = "(1950,50),(2100,50)">
+  //    <constraint name = "Ag" query = "LULC_A=7 {Agriculture} " / >
+ //     <preference name = "Current" query = "SWAT_ID = 106 {Almonds}" weight = "0.75" / >
+ //     < / allocation>
+// Follow with additional allocations
+      
+
+   // m_update_from_file_name is a csv file written by separate process each year
+   // Use LoadXml to build Allocation - the size of the allocationSet/allocation should match the size of m_update_from_file_name
+   // This code modifies the existing allocations with values from m_update_from_file_name
+   // The values for m_pTargetData are set to the same values as defined by the external process.  This assumes the allocations were specified
+   // as a time series with 2 points.  Because the 2 values in the updated time series are equivalent, the sampling will return the same value.
+bool SpatialAllocator::UpdateAllocationsFromFile()
+   {
+   if (m_pBuildFromFile != NULL)
+      {
+      m_pBuildFromFile->Clear();
+      m_pBuildFromFile->ReadAscii(m_update_from_file_name);
+      int sz2 = m_pBuildFromFile->GetRowCount();
+      for (int i = 0; i < (int)m_allocationSetArray.GetSize(); i++)
+         {
+         AllocationSet* pAllocSet = m_allocationSetArray[i];
+         for (int j = 0; j < (int)pAllocSet->m_allocationArray.GetSize(); j++)
+            {
+            //Update the lulc id, target values, constraints, and preferences
+            Allocation* pAlloc = pAllocSet->m_allocationArray[j];
+            int sz1 = (int)pAllocSet->m_allocationArray.GetSize(); 
+            ASSERT(sz1 == sz2);
+            pAlloc->m_id = m_pBuildFromFile->GetAsInt(1, j);
+            CString nam;
+            nam.Format("SWAT Code %i CVPM %i", pAlloc->m_id, m_pBuildFromFile->GetAsInt(0, i));
+            pAlloc->m_name = nam;
+           // pAlloc->m_targetValues = m_pBuildFromFile->GetAsString(3, j);
+            CString query;
+            query.Format("LULC_A = 7 and CVPM_INT = %i", m_pBuildFromFile->GetAsInt(0, i));//find correct CVPM and constrain to Ag lands
+            //pAlloc->m_pTargetQuery->m_value = query;
+            pAlloc->m_constraint.m_queryStr = query;
+            Preference* pPref = pAlloc->m_prefsArray.GetAt(0);
+            CString prefQuery;
+            prefQuery.Format("SWAT_ID = %i", m_pBuildFromFile->GetAsInt(1, i));//preference for land already growing this crop
+            pPref->m_queryStr = prefQuery;
+            if (pAllocSet->m_inUse && pAlloc->m_pTargetData != NULL)
+               //pAlloc->SetTarget(m_pBuildFromFile->GetAsFloat(1, j));//area to disaggregate
+               {
+               pAlloc->m_pTargetData->Set(1, 0, m_pBuildFromFile->GetAsFloat(1, j));
+               pAlloc->m_pTargetData->Set(1, 1, m_pBuildFromFile->GetAsFloat(1, j));
+               }
+            else
+               pAlloc->m_currentTarget = 0;
+            }
+         }
+      }
+   return true;
+}
 
 bool SpatialAllocator::SaveXml( LPCTSTR path )
    {
@@ -2680,9 +2786,6 @@ float SpatialAllocator::Expand( int idu, Allocation *pAlloc, bool useAddDelta, i
    ASSERT( this->m_pMapLayer != NULL );
    MapLayer *pLayer = this->m_pMapLayer;
 
-   if ( m_colArea < 0 )
-      m_colArea = pLayer->GetFieldCol( _T( "AREA" ) );
-
    // basic idea - expand in concentric circles aroud the idu (subject to constraints)
    // until necessary area is found.  We do this keeping track of candidate expansion IDUs
    // in m_expansionArray, starting with the "nucleus" IDU and iteratively expanding outward.
@@ -2693,7 +2796,7 @@ float SpatialAllocator::Expand( int idu, Allocation *pAlloc, bool useAddDelta, i
    INT_PTR lastExpandedIndex = 0;
    int poolSize = 1;       // number of unprocessed IDUs that are expandable
 
-   pAlloc->SetMaxExpandArea();
+   pAlloc->SetMaxExpandArea();  // really, basis
 
    // note: values in m_expansionArray are -(index+1)
    m_expansionIDUs.RemoveAll();
@@ -2927,6 +3030,7 @@ void SpatialAllocator::CollectData(EnvContext *pContext)
          {
          outputs.Add( pAllocSet->m_currentTarget );
          outputs.Add( pAllocSet->m_allocationSoFar );
+         outputs.Add(pAllocSet->m_areaSoFar);  // added 
          }
 
       for ( int j=0; j < pAllocSet->GetAllocationCount(); j++ )
@@ -2936,9 +3040,8 @@ void SpatialAllocator::CollectData(EnvContext *pContext)
          if ( ! isTargetDefined )
             outputs.Add( pAlloc->m_currentTarget );
 
-         //outputs.Add( 100*pAlloc->m_currentTarget/m_totalArea );  ////????
-         //outputs.Add( 100*pAlloc->m_allocationSoFar/m_totalArea );////????
          outputs.Add( pAlloc->m_allocationSoFar );    // realized target
+         outputs.Add(pAlloc->m_areaSoFar);    // realized target
 
          if ( isTargetDefined )
             outputs.Add( pAlloc->m_allocationSoFar*100 / pAllocSet->m_currentTarget );

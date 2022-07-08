@@ -13,7 +13,7 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
+You should have received a copy of the GNU General Publi c License
 along with Envision.  If not, see <http://www.gnu.org/licenses/>
 
 Copywrite 2012 - Oregon State University
@@ -178,7 +178,7 @@ ChronicHazards::ChronicHazards(void)
    m_exportMapInterval(-1),            // -1=Off, Interval number of yrs to write 
    m_findSafeSiteCell(0),               // 0=Off, 1=On
    m_runBayFloodModel(0),               // Run Bay Flooding Model: 0=Off, 1=On
-   m_writeDailyData(0),               // 0=Off, 1=On
+   m_writeDailyBouyData(0),               // 0=Off, 1=On
    m_writeRBF(0),                     // 0=Off, postive value=sample interval
 
    m_bfeCount(0),
@@ -1674,7 +1674,7 @@ bool ChronicHazards::Init(EnvContext *pEnvContext, LPCTSTR initStr)
    //     cols = m_buoyObsData.GetColCount();*/
    //  }
 
-   //  //bool writeDailyData = (m_writeDailyData == 1) ? true : false;
+   //  //bool writeDailyBouyData = (m_writeDailyBouyData == 1) ? true : false;
 
    //  // if randomize, reread in
    ////  m_RBFDailyDataArray.Clear();
@@ -1684,7 +1684,7 @@ bool ChronicHazards::Init(EnvContext *pEnvContext, LPCTSTR initStr)
    //  
    //  CString path(PathManager::GetPath(PM_PROJECT_DIR));
    // 
-   //  if (writeDailyData)
+   //  if (writeDailyBouyData)
    //  {
    //     m_minTransect = 0;
    //     m_maxTransect = m_numTransects - 1;
@@ -1707,7 +1707,7 @@ bool ChronicHazards::Init(EnvContext *pEnvContext, LPCTSTR initStr)
    //     folder += file;
 
    //     // generate DailyData_%i.csv files using the rbfs and the buoy (simulation) data timeseries
-   //     if (writeDailyData)
+   //     if (writeDailyBouyData)
    //     {
    //        LookupTable *pLUT = m_swanLookupTableArray.GetAt(i - m_minTransect);   // zero-based
 
@@ -1807,7 +1807,7 @@ bool ChronicHazards::LoadRBFs()
    FILE* fpSave = NULL;
    CString iduPath(PathManager::GetPath(PM_IDU_DIR));
 
-   CString savePath = iduPath + "TWL Inputs\\SWAN_RBF_Params.rbf";
+   CString savePath = m_twlInputDir + "SWAN_RBF_Params.rbf";
    
    m_randIndex = m_simulationCount;
 
@@ -1831,9 +1831,9 @@ bool ChronicHazards::LoadRBFs()
          }
       }
 
-   bool writeDailyData = (m_writeDailyData == 1) ? true : false;
+   bool writeDailyBouyData = (m_writeDailyBouyData == 1) ? true : false;
 
-   if (writeRBFfile || writeDailyData)
+   if (writeRBFfile || writeDailyBouyData)
       {
       m_minTransect = 0;
       m_maxTransect = m_numTransects - 1;
@@ -2107,11 +2107,14 @@ bool ChronicHazards::InitRun(EnvContext *pEnvContext, bool useInitialSeed)
          break;
       }
 
-   CString climateScenarioPath = "Climate_Scenarios\\" + m_climateScenarioStr + "\\";
-   // PathManager::AddPath(climateScenarioPath); */
-
+   // add the path to the climate scenarios folder, e.g. '/Tillamook/TWL Inputs/ClimateScenarios/med/'
+   // to the PathManager
+   CString climateScenarioPath = m_twlInputDir + "Climate_Scenarios/" + m_climateScenarioStr + "/";
+   PathManager::AddPath(climateScenarioPath);
+   
+   // build climate scenario file name for sea level rise projections 
    CString slrDataFile;
-   slrDataFile.Format("%s%s_slr.csv", climateScenarioPath, m_climateScenarioStr);
+   slrDataFile.Format(_T("%s%s_slr.csv"), (LPCTSTR) climateScenarioPath, (LPCTSTR) m_climateScenarioStr);
 
    CString fullPath;
    PathManager::FindPath(slrDataFile, fullPath);
@@ -2142,8 +2145,8 @@ bool ChronicHazards::InitRun(EnvContext *pEnvContext, bool useInitialSeed)
    //   simulationPath.Format("%sSimulation_%i", climateScenarioPath, m_randIndex);
 
    CString buoyFile;
-   buoyFile.Format("%s\\BuoyData_%s.csv", simulationPath, m_climateScenarioStr);
-   PathManager::FindPath(buoyFile, fullPath);
+   buoyFile.Format("%s\\%s\\BuoyData_%s.csv", m_twlInputDir, m_climateScenarioStr);
+   //PathManager::FindPath(buoyFile, fullPath);
 
    // Read daily buoy observations/simulations for the entire Envision time period
    m_numDays = m_buoyObsData.ReadAscii(fullPath);
@@ -2240,7 +2243,7 @@ bool ChronicHazards::InitRun(EnvContext *pEnvContext, bool useInitialSeed)
 
 bool ChronicHazards::WriteDailyData(CString timeSeriesFolder)
    {
-   bool writeDailyData = (m_writeDailyData == 1) ? true : false;
+   bool writeDailyBouyData = (m_writeDailyBouyData == 1) ? true : false;
 
    // if randomize, reread in
    //  m_RBFDailyDataArray.Clear();
@@ -2250,7 +2253,7 @@ bool ChronicHazards::WriteDailyData(CString timeSeriesFolder)
 
    // CString path(PathManager::GetPath(PM_PROJECT_DIR));
 
-   if (writeDailyData)
+   if (writeDailyBouyData)
       {
       m_minTransect = 0;
       m_maxTransect = m_numTransects - 1;
@@ -2268,9 +2271,9 @@ bool ChronicHazards::WriteDailyData(CString timeSeriesFolder)
       // folder = path + folder;
 
       CString timeSeriesFile;
-      timeSeriesFile.Format("%s\\DailyData_%i.csv", timeSeriesFolder, i);     //series of SWAN lookup tables
+      timeSeriesFile.Format(_T("%s\\DailyData_%i.csv"), timeSeriesFolder, i);     //series of SWAN lookup tables
                                                                               // generate DailyData_%i.csv files using the rbfs and the buoy (simulation) data timeseries
-      if (writeDailyData)
+      if (writeDailyBouyData)
          {
          pRBFDaily->SetLabel(0, "Height_L");
          pRBFDaily->SetLabel(1, "Height_H");
@@ -2625,11 +2628,11 @@ bool ChronicHazards::Run(EnvContext *pEnvContext)
          double alpha = 0.5 * (1.0f - cos(2.0 * PI * (tm1 / TD)));
 
          if (isNan<double>(alpha))
-            {
             alpha = 0.02;
-            }
+
          if (alpha > .4)
             alpha = 0.4;
+
          //multiply by alpha to get 
          R_inf_KD *= alpha;
 
@@ -2650,9 +2653,14 @@ bool ChronicHazards::Run(EnvContext *pEnvContext)
             {
             float prevslr = 0.0f;
             int year = (pEnvContext->currentYear) - 2010;
-            m_slrData.Get(0, year, slr);
-            if (pEnvContext->currentYear > 2010)
-               m_slrData.Get(0, year - 1, prevslr);
+            int index = 0;
+            if ( slrTimestep == 0 ) // daily
+               index = 
+             
+            m_slrData.Get(0, year - 1, prevslr);
+
+            // yearly or daily?
+
             float toeRise = slr - prevslr;
             if (beachType == BchT_SANDY_DUNE_BACKED)
                {
@@ -9327,6 +9335,7 @@ bool ChronicHazards::LoadXml(LPCTSTR filename)
 
    // envx file directory, slash-terminated
    CString projDir = PathManager::GetPath(PM_PROJECT_DIR);
+   CString iduDir = PathManager::GetPath(PM_IDU_DIR);
 
    TiXmlElement *pXmlTWL = pXmlRoot->FirstChildElement("twl");
    if (pXmlTWL == NULL)
@@ -9341,7 +9350,7 @@ bool ChronicHazards::LoadXml(LPCTSTR filename)
       // attr              type          address                           isReq  checkCol
       { "debug",             TYPE_INT,     &m_debug,                        true,    0 },
       { "writeRBF",          TYPE_INT,     &m_writeRBF,                     true,    0 },
-      { "writebuoy",         TYPE_INT,     &m_writeDailyData,               true,    0 },
+      { "writebuoy",         TYPE_INT,     &m_writeDailyBouyData,           true,    0 },
       { "findSafeSiteCell",  TYPE_INT,     &m_findSafeSiteCell,             true,    0 },
       { "erosionInputDir",   TYPE_STRING,  &erosionInputDir,                true,    0 },
       { "twlInputDir",       TYPE_STRING,  &twlInputDir,                    true,    0 },
@@ -9373,14 +9382,14 @@ bool ChronicHazards::LoadXml(LPCTSTR filename)
       }
 
    //m_cityDir = city;
-   //// add "PolyGridLookups" directory to the Envision search paths
-   //CString pglPath = projDir + m_cityDir + "\\" + _T("PolyGridMaps");
-   //PathManager::AddPath(pglPath);
-   //CString twlInputPath = projDir + twlInputDir;
-   //CString erosionInputPath = projDir + erosionInputDir;
+   // add "PolyGridLookups" directory to the Envision search paths
+   CString pglPath = projDir + m_cityDir + "\\" + _T("PolyGridMaps");
+   PathManager::AddPath(pglPath);
+   m_twlInputDir = iduDir + twlInputDir + '/';
+   CString erosionInputPath = projDir + erosionInputDir;
 
-   //PathManager::AddPath(twlInputPath);
-   //PathManager::AddPath(erosionInputPath);
+   PathManager::AddPath(m_twlInputDir);
+   PathManager::AddPath(erosionInputPath);
 
    TiXmlElement *pXmlBatesPolicy = pXmlRoot->FirstChildElement("Bates");
    if (pXmlBatesPolicy == NULL)
@@ -9400,14 +9409,6 @@ bool ChronicHazards::LoadXml(LPCTSTR filename)
       return false;
 
    m_cityDir = city;
-   // add "PolyGridLookups" directory to the Envision search paths
-   CString pglPath = projDir + m_cityDir + "\\" + _T("PolyGridMaps");
-   PathManager::AddPath(pglPath);
-   CString twlInputPath = projDir + twlInputDir;
-   CString erosionInputPath = projDir + erosionInputDir;
-
-   PathManager::AddPath(twlInputPath);
-   PathManager::AddPath(erosionInputPath);
 
    TiXmlElement *pXmlBPSPolicy = pXmlRoot->FirstChildElement("bps");
    if (pXmlBPSPolicy == NULL)
@@ -10677,9 +10678,10 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
 
    //m_maxTWLArray.SetSize(m_maxDuneIndx+1, 365);
 
+   // iterate through each day of the year
    for (int doy = 0; doy < 365; doy++)
       {
-      int row = pEnvContext->yearOfRun * 365 + doy;
+      int row = (pEnvContext->yearOfRun * 365) + doy;
 
       // Get the Still Water Level for that day ( in NVAVD88 vertical datum ) from the deep water time series
       float swl = 0.0f;
@@ -10693,7 +10695,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
       float wlratio = (swl - (-1.5f)) / (4.5f + 1.5f);
 
       int   idusProcessed = 0;
-      //   int   maxIterations = 0;
       float maxTWLforPeriod = 0;
       float maxErosionforPeriod = 0;
 
@@ -10702,7 +10703,8 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
       float meanPeakDirection = 0;
       float meanPeakWaterLevel = 0;
 
-      // iterate though Dune toe points, calculate TWL and associated variables as we go.
+      // for this day, iterate though Dune toe points, 
+      //   calculating TWL and associated variables as we go.
       //#pragma omp parallel for
       for (MapLayer::Iterator point = m_pNewDuneLineLayer->Begin(); point < m_pNewDuneLineLayer->End(); point++)
          {
@@ -10792,7 +10794,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
          pRBF->Get(5, row, radPeakDirectionH);
          pRBF->Get(6, row, radPeakWaterLevelL);
          pRBF->Get(7, row, radPeakWaterLevelH);
-
 
          // unused
          meanPeakHeight += (radPeakHeightH + radPeakHeightL) / 2.0f;
@@ -10952,8 +10953,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
             //   dailyTWL_2 = dailyTWL;
             }
 
-         // Use Local/TAW Combination to calculate TWL for all other defined beachtypes 
-         //    else if (beachType != BchT_UNDEFINED || beachType != BchT_RIVER )
          else if (beachType == BchT_RIPRAP_BACKED ||
             beachType == BchT_DUNE_BLUFF_BACKED ||
             beachType == BchT_CLIFF_BACKED ||
@@ -10961,6 +10960,8 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
             beachType == BchT_WOODY_BLUFF_BACKED ||
             beachType == BchT_ROCKY_HEADLAND)
             {
+            // Use Local/TAW Combination to calculate TWL for all other defined beachtypes 
+            //    else if (beachType != BchT_UNDEFINED || beachType != BchT_RIVER )
             double xTop = 0.0;
             double xBottom = 0.0;
 
@@ -11039,63 +11040,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
                   {
                   DDataObj *pBATH = m_BathyDataArray.GetAt(profileIndx);   // zero-based
 
-                                                                           //    double xTop = pBATH->IGet(yTop, 1, IM_LINEAR);
-                                                                           //double xBottom = pBATH->IGet(yBottom, 1, IM_LINEAR);
-                                                                           /*if (beachType == BchT_DUNE_BLUFF_BACKED)
-                                                                           {
-                                                                           int lastRow = pBATH->GetRowCount();
-                                                                           eastingCrest = pBATH->Get(1, lastRow);
-                                                                           }*/
-
-                                                                           //   double eastingCrest = 0.0f;
-                                                                           //   int rowCrest = -1;
-                                                                           ////   m_pProfileLUT->Get(3, profileIndx, eastingCrest);
-
-                                                                           //   if (eastingCrest <= 0.0)
-                                                                           //   {
-                                                                           //      // row of MHW
-                                                                           //      int rowMHW = -1;
-                                                                           //      double eastingMHW = IGet(pBATH, MHW, 0, 1, IM_LINEAR, 0, &rowMHW, true);
-                                                                           //      int lastRow = (int)pBATH->GetRowCount();
-                                                                           //      float crest = -9999.0;
-
-                                                                           //      for (int row = rowMHW; row < lastRow; row++)
-                                                                           //      {
-                                                                           //         float value = 0.0;
-                                                                           //         pBATH->Get(0, row, value);
-                                                                           //         if (value > crest)
-                                                                           //         {
-                                                                           //            crest = value;
-                                                                           //            eastingCrest = IGet(pBATH, crest, 0, 1, IM_LINEAR, row, &rowCrest, true);
-                                                                           //         }
-                                                                           //      }
-
-                                                                           //   m_pNewDuneLineLayer->SetData(point, m_colEastingCrestProfile, eastingCrest);
-                                                                           //   }
-                                                                           //   else
-                                                                           //      IGet(pBATH, eastingCrest, 1, 1, IM_LINEAR, 0, &rowCrest, true);
-
-                                                                           //   //// xTop and xBottom are (true) Easting locations
-                                                                           //   int rowTWLTop = -1;
-                                                                           //   xTop = IGet(pBATH, yTop, 0, 1, IM_LINEAR, rowCrest, &rowTWLTop, false);
-
-                                                                           //   int rowTWLBtm = -1;
-                                                                           //   xBottom = IGet(pBATH, yBottom, 0, 1, IM_LINEAR, rowTWLTop, &rowTWLBtm, false);
-
-                                                                           //      double run = abs(xTop - xBottom);
-
-
-                                                                           //m_pProfileLUT->Set(3, profileIndx, eastingCrest);
-
-
-                                                                           //                  int mhwRow = pBATH->Find(1, VData(0.0f), -1) + 2;
-                                                                           //
-                                                                           //                  // this is determining the xBottom and xTop of the location of yBottom and yTop
-                                                                           //                  // can I just get the surf width at yTop
-                                                                           //                  // and the surf width at yBottom
-                                                                           //                  // ?? do I need data higher than MHW (2.1) ???
-                                                                           //
-
                   int length = (int)pBATH->GetRowCount();
 
                   double *yt;
@@ -11120,6 +11064,7 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
                      yb[ii] = y1temp - yBottom;
                      }
 
+                  // interpolate results
                   Mminvinterp(xtemp, yt, xotemp, length);
 
                   // xTop (Location of STK_TWL)
@@ -11157,11 +11102,10 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
                         m_pNewDuneLineLayer->SetData(point, m_colRunupFlag, 1);
                         m_pNewDuneLineLayer->SetData(point, m_colTAWSlope, slope_TAW_local);
                         }
-
                      }
 
                   // the water is swashing on the beach
-                  //assume TAW slope equal to beach slope
+                  // assume TAW slope equal to beach slope
                   if (yTop < duneToe)
                      {
                      slope_TAW_local = tanb1;
@@ -11254,7 +11198,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
 
             if (slope_TAW_local > 0.5)
                {
-
                slope_TAW_local = 0.5;
                if (m_debugOn)
                   {
@@ -11304,7 +11247,12 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
                }
 
             dailyTWL = swl + (float)structureR2;
-            }
+            }  // end of: else if (beachType == BchT_RIPRAP_BACKED ||
+               //                  beachType == BchT_DUNE_BLUFF_BACKED ||
+               //                  beachType == BchT_CLIFF_BACKED ||
+               //                  beachType == BchT_WOODY_DEBRIS_BACKED ||
+               //                  beachType == BchT_WOODY_BLUFF_BACKED ||
+               //                  beachType == BchT_ROCKY_HEADLAND)
 
          // check for dune hours
          // collision regime (dune erosion expected
@@ -11413,7 +11361,6 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
                {
                m_pNewDuneLineLayer->SetData(point, m_colYrMaxSWL, swl);
                }
-
             }
 
          if (dailyTWL > yearlyMaxTWL)
@@ -11442,14 +11389,11 @@ void ChronicHazards::CalculateYrMaxTWL(EnvContext *pEnvContext)
             m_pNewDuneLineLayer->SetData(point, m_colYrMaxIncSwash, STK_INC);
             m_pNewDuneLineLayer->SetData(point, m_colYrMaxSwash, STK_Swash);
 
-
-
             if (m_debugOn)
                {
                m_pNewDuneLineLayer->SetData(point, m_colSTKRunup, STK_Runup);
                m_pNewDuneLineLayer->SetData(point, m_colSTKR2, StockdonR2);
                m_pNewDuneLineLayer->SetData(point, m_colStructR2, structureR2);
-
                }
 
             /*if (dailyTWL_2 > duneCrest && (beachType != BchT_BAY || beachType != BchT_RIVER || beachType != BchT_UNDEFINED))
