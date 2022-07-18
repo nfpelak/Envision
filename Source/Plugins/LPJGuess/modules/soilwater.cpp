@@ -57,7 +57,7 @@ void snow(double prec, double temp, double insol, double lai, double& snowpack, 
 	float sn_abs = 0.6f; //adsorptivity of snow
 	float lh_fus = 335;  //latent heat of fusion (kJ/kg)
 	float lh_sub = 2835.0f; //latent heat of sublimation
-	float rn = insol*3.6f;//convert to kj/m2/d;     //net radiation (kJ/m2/d)
+	float rn = insol*3.6f*24.0f;//convert to kj/m2/d;     //net radiation (kJ/m2/d)
 	float rmelt = 0.0f;  //water fram radiation induced snow melt (kg/m2/d)
 	float k = 0.5f;     //extinction coefficient 
 	float swinc = rn;  //shortwave incident
